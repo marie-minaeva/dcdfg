@@ -1,6 +1,7 @@
 import sys
 
-from pytorch_lightning.callbacks import Callback, EarlyStopping, ProgressBar
+from pytorch_lightning.callbacks import Callback, EarlyStopping
+from pytorch_lightning.callbacks.progress import ProgressBarBase
 from tqdm import tqdm
 
 
@@ -15,7 +16,7 @@ class AugLagrangianCallback(Callback):
             pl_module.update_lagrangians()
 
 
-class CustomProgressBar(ProgressBar):
+class CustomProgressBar(ProgressBarBase):
     def init_train_tqdm(self) -> tqdm:
         """Override this to customize the tqdm bar for training."""
         bar = tqdm(
