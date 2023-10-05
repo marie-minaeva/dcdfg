@@ -1,3 +1,4 @@
+
 import argparse
 import os
 
@@ -90,7 +91,7 @@ if __name__ == "__main__":
 
     # load data and make dataset
     folder = arg.data_dir
-    file = "data/simulated/" + arg.data_dir
+    file = arg.data_dir
 
     train_dataset = SimulationDataset(
         file, arg.i_dataset, fraction_regimes_to_ignore=0.2, intervention=not arg.obs
@@ -135,14 +136,16 @@ if __name__ == "__main__":
         model = MLPGaussianModel(nb_nodes, 2, 16, lr_init=arg.lr, reg_coeff=arg.reg_coeff, constraint_mode=arg.constraint_mode)
     else:
         raise ValueError("couldn't find model")
-
+    """
     logger = WandbLogger(
         project="DCDI-train-" + arg.data_dir, log_model=True, reinit=True
     )
+    """
     # LOG CONFIG
     model_name = model.__class__.__name__
     if arg.poly and model_name == "LinearGaussianModel":
         model_name += "_poly"
+    """
     logger.experiment.config.update(
         {
             "model_name": model_name,
@@ -150,7 +153,7 @@ if __name__ == "__main__":
             "i-dataset": arg.i_dataset,
         }
     )
-
+    """
     # Step 1: augmented lagrangian
     early_stop_1_callback = ConditionalEarlyStopping(
         monitor="Val/aug_lagrangian",
@@ -160,9 +163,10 @@ if __name__ == "__main__":
         mode="min",
     )
     trainer = pl.Trainer(
-        gpus=arg.num_gpus,
+        devices=arg.num_gpus, 
+        accelerator='gpu',
         max_epochs=arg.num_train_epochs,
-        logger=logger,
+        #logger=logger,
         val_check_interval=1.0,
         callbacks=[AugLagrangianCallback(), early_stop_1_callback, CustomProgressBar()],
     )
@@ -171,8 +175,8 @@ if __name__ == "__main__":
         DataLoader(train_dataset, batch_size=arg.train_batch_size, num_workers=4),
         DataLoader(val_dataset, num_workers=8, batch_size=256),
     )
-    wandb.log({"nll_val": model.nlls_val[-1]})
-    wandb.finish()
+    #wandb.log({"nll_val": model.nlls_val[-1]})
+    #wandb.finish()
 
     # freeze and prune adjacency
     model.module.threshold()
@@ -185,13 +189,16 @@ if __name__ == "__main__":
     model.mu = 0.0
 
     # Step 2:fine tune weights with frozen model
+    """
     logger = WandbLogger(
         project="DCDI-fine-" + arg.data_dir, log_model=True, reinit=True
     )
+    """
     # LOG CONFIG
     model_name = model.__class__.__name__
     if arg.poly and model_name == "LinearGaussianModel":
         model_name += "_poly"
+    """
     logger.experiment.config.update(
         {
             "model_name": model_name,
@@ -199,13 +206,14 @@ if __name__ == "__main__":
             "i-dataset": arg.i_dataset,
         }
     )
+    """
     early_stop_2_callback = EarlyStopping(
         monitor="Val/nll", min_delta=1e-6, patience=5, verbose=True, mode="min"
     )
     trainer_fine = pl.Trainer(
         gpus=arg.num_gpus,
         max_epochs=arg.num_fine_epochs,
-        logger=logger,
+        #logger=logger,
         val_check_interval=1.0,
         callbacks=[early_stop_2_callback, CustomProgressBar()],
     )
@@ -230,7 +238,7 @@ if __name__ == "__main__":
     # check integers
     assert np.equal(np.mod(pred_adj, 1), 0).all()
     file = (
-        "data/simulated/" + arg.data_dir + "/" + "DAG" + str(arg.i_dataset) + ".npy"
+        arg.data_dir + "/" + "DAG" + str(arg.i_dataset) + ".npy"
     )
     truth = np.load(file)
     shd = shd_metric(pred_adj, truth)
@@ -245,13 +253,7 @@ if __name__ == "__main__":
     val_nll = np.mean([x.item() for x in pred])
 
     acyclic = int(model.module.check_acyclicity())
-    wandb.log(
-        {
-            "interv_nll": held_out_nll,
-            "val nll": val_nll,
-            "acyclic": acyclic,
-            "n_edges": pred_adj.sum(),
-            "shd": shd,
-            "fdr": fdr_score,
-        }
-    )
+
+    # Step 5: dump predicted adjacency
+    var_names = np.array([x for x in range(truth.shape[0])])
+    np.savez(arg.data_dir + "/" + "data_dcdfg.npz", ground_adj=truth, pred_adj=pred_adj, var_names=var_names)
